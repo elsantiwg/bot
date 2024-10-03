@@ -5,19 +5,23 @@ import pywhatkit as pwk
 import time
 from datetime import datetime
 import pytz
+import logging
+
+# Configuración del logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Definir la URL de la página donde se realiza la consulta
-url = "http://190.13.96.92/minisitio/Consulta_Numero_Celular.aspx"
+URL = "http://190.13.96.92/minisitio/Consulta_Numero_Celular.aspx"
 
 # Cargar el archivo Excel con los números
-file_path = 'numeros_portabilidad.xlsx'  # El archivo debe estar en la misma carpeta
-df = pd.read_excel(file_path)
+FILE_PATH = 'numeros_portabilidad.xlsx'
+df = pd.read_excel(FILE_PATH)
 
 # Crear una sesión para mantener las cookies
 session = requests.Session()
 
 # Hacer una solicitud inicial para obtener los valores de VIEWSTATE y EVENTVALIDATION
-response = session.get(url)
+response = session.get(URL)
 soup = BeautifulSoup(response.content, 'html.parser')
 
 # Obtener los valores de VIEWSTATE, VIEWSTATEGENERATOR y EVENTVALIDATION necesarios
@@ -25,12 +29,13 @@ viewstate = soup.find("input", {"id": "__VIEWSTATE"}).get("value")
 viewstate_generator = soup.find("input", {"id": "__VIEWSTATEGENERATOR"}).get("value")
 event_validation = soup.find("input", {"id": "__EVENTVALIDATION"}).get("value")
 
-# Parámetros configurables para el envío por lotes
-mensajes_por_lote = 5          # Número de mensajes que se enviarán por cada lote
-tiempo_espera_lote = 600       # Tiempo de espera entre lotes en segundos (10 minutos)
-tiempo_espera_envio = 15       # Tiempo de espera para que cargue la página (ajústalo según la velocidad de carga)
+# Parámetros configurables
+MENSAJES_POR_LOTE = 5          # Número de mensajes por lote
+TIEMPO_ESPERA_LOTE = 600       # Tiempo de espera entre lotes en segundos (10 minutos)
+TIEMPO_ESPERA_ENVIO = 15       # Tiempo de espera para enviar el mensaje en segundos
+PAUSA_ENTRE_MENSAJES = 5       # Pausa entre mensajes en segundos
 
-# Obtener la hora actual en la zona horaria de Colombia
+# Zona horaria de Colombia
 zona_horaria_colombia = pytz.timezone("America/Bogota")
 
 # Función para obtener el saludo según la hora del día
@@ -54,13 +59,12 @@ def verificar_portabilidad(numero):
         'btnIngrasar.y': '0',
     }
     # Hacer la solicitud POST
-    response = session.post(url, data=payload)
+    response = session.post(URL, data=payload)
     soup = BeautifulSoup(response.content, 'html.parser')
-    # Extraer el mensaje de estado desde el HTML resultante
-    mensaje_estado = soup.find("span", {"id": "lblInfoEstadoPortabilidad"}).text
+    mensaje_estado = soup.find("span", {"id": "lblInfoEstadoPortabilidad"}).text.strip()
     return mensaje_estado
 
-# Función para mostrar el temporizador en segundos
+# Función para mostrar el temporizador
 def mostrar_temporizador(tiempo_restante):
     while tiempo_restante > 0:
         mins, secs = divmod(tiempo_restante, 60)
@@ -73,58 +77,48 @@ def mostrar_temporizador(tiempo_restante):
 # Lista para almacenar los resultados de verificación y envío
 resultados = []
 
-# Iterar por cada número en el Excel y procesar en lotes
-for i in range(0, len(df), mensajes_por_lote):
-    # Obtener el lote actual de números
-    lote = df.iloc[i:i + mensajes_por_lote]
+# Función para procesar un número
+def procesar_numero(row):
+    numero = str(row['Numero']).strip()
+    logging.info(f"Verificando número: {numero}")
 
-    for index, row in lote.iterrows():
-        numero = str(row['Numero'])  # Asegurarse de que el número sea un string
-        print(f"Verificando número: {numero}")
+    # Verificar el estado de portabilidad
+    estado_portabilidad = verificar_portabilidad(numero)
+    logging.info(f"Estado de portabilidad: {estado_portabilidad}")
 
-        # Verificar el estado de portabilidad
-        estado_portabilidad = verificar_portabilidad(numero)
-        print(f"Estado de portabilidad: {estado_portabilidad}")
+    if estado_portabilidad == "El número de celular no tiene una solicitud de portabilidad en curso.":
+        mensaje = obtener_saludo()
+        numero = "+57" + numero if not numero.startswith("+") else numero
 
-        # Si no tiene portabilidad en curso, se envía el mensaje
-        if estado_portabilidad == "El número de celular no tiene una solicitud de portabilidad en curso.":
-            # Obtener el saludo adecuado
-            mensaje = obtener_saludo()
+        try:
+            # Enviar el mensaje usando pywhatkit
+            logging.info(f"Enviando mensaje a {numero}: {mensaje}")
+            pwk.sendwhatmsg_instantly(numero, mensaje, TIEMPO_ESPERA_ENVIO, True)
+            estado_envio = "Enviado"
+            time.sleep(PAUSA_ENTRE_MENSAJES)
+        except Exception as e:
+            logging.error(f"Error al enviar mensaje a {numero}: {e}")
+            estado_envio = f"Error: {e}"
+    else:
+        estado_envio = "No enviado - Portabilidad en curso"
 
-            # Agregar el código de país si no está presente
-            if not numero.startswith("+"):
-                numero = "+57" + numero  # Ajusta el código de país según sea necesario
+    return {'Numero': numero, 'Estado Portabilidad': estado_portabilidad, 'Estado Envío': estado_envio}
 
-            try:
-                # Enviar el mensaje usando pywhatkit
-                print(f"Enviando mensaje a {numero}: {mensaje}")
-                pwk.sendwhatmsg_instantly(
-                    numero, 
-                    mensaje, 
-                    tiempo_espera_envio,  # Esperar para cargar la página y enviar
-                    True
-                )  
-                estado_envio = "Enviado"
+# Procesar los números en lotes
+for i in range(0, len(df), MENSAJES_POR_LOTE):
+    lote = df.iloc[i:i + MENSAJES_POR_LOTE]
 
-                # Esperar unos segundos antes de enviar el siguiente mensaje en el mismo lote
-                time.sleep(5)  # Puedes ajustar este tiempo si es necesario
+    for _, row in lote.iterrows():
+        resultado = procesar_numero(row)
+        resultados.append(resultado)
 
-            except Exception as e:
-                print(f"Error al enviar mensaje a {numero}: {e}")
-                estado_envio = f"Error: {e}"
-        else:
-            estado_envio = "No enviado - Portabilidad en curso"
-
-        # Agregar los resultados al DataFrame
-        resultados.append({'Numero': numero, 'Estado Portabilidad': estado_portabilidad, 'Estado Envío': estado_envio})
-
-    # Esperar el tiempo configurado entre lotes, si no es el último lote
-    if i + mensajes_por_lote < len(df):
-        print(f"Esperando {tiempo_espera_lote / 60} minutos antes de enviar el siguiente lote...")
-        mostrar_temporizador(tiempo_espera_lote)
+    # Esperar entre lotes
+    if i + MENSAJES_POR_LOTE < len(df):
+        logging.info(f"Esperando {TIEMPO_ESPERA_LOTE // 60} minutos antes de enviar el siguiente lote...")
+        mostrar_temporizador(TIEMPO_ESPERA_LOTE)
 
 # Guardar los resultados en un nuevo archivo Excel
 df_resultados = pd.DataFrame(resultados)
 df_resultados.to_excel('resultados_finales_portabilidad_y_mensajes_lote.xlsx', index=False)
 
-print("Proceso de verificación y envío de mensajes completado.")
+logging.info("Proceso de verificación y envío de mensajes completado.")
