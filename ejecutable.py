@@ -26,8 +26,9 @@ viewstate_generator = soup.find("input", {"id": "__VIEWSTATEGENERATOR"}).get("va
 event_validation = soup.find("input", {"id": "__EVENTVALIDATION"}).get("value")
 
 # Parámetros configurables para el envío por lotes
-mensajes_por_lote = 5   # Número de mensajes que se enviarán por cada lote
-tiempo_espera = 600     # Tiempo de espera entre lotes en segundos (10 minutos)
+mensajes_por_lote = 5          # Número de mensajes que se enviarán por cada lote
+tiempo_espera_lote = 600       # Tiempo de espera entre lotes en segundos (10 minutos)
+tiempo_espera_envio = 10       # Tiempo de espera para que cargue la página (ajústalo según la velocidad de carga)
 
 # Obtener la hora actual en la zona horaria de Colombia
 zona_horaria_colombia = pytz.timezone("America/Bogota")
@@ -97,18 +98,21 @@ for i in range(0, len(df), mensajes_por_lote):
             try:
                 # Enviar el mensaje usando pywhatkit
                 print(f"Enviando mensaje a {numero}: {mensaje}")
-                pwk.sendwhatmsg_instantly(numero, mensaje, 10, True)  # 10 segundos de espera para cargar la página
+                pwk.sendwhatmsg_instantly(
+                    numero, 
+                    mensaje, 
+                    tiempo_espera_envio,  # Esperar para cargar la página y enviar
+                    True
+                )  
                 estado_envio = "Enviado"
 
-                # Esperar unos segundos antes de enviar el siguiente mensaje
+                # Esperar unos segundos antes de enviar el siguiente mensaje en el mismo lote
                 time.sleep(5)  # Puedes ajustar este tiempo si es necesario
 
             except Exception as e:
                 print(f"Error al enviar mensaje a {numero}: {e}")
                 estado_envio = f"Error: {e}"
         else:
-            
-            
             estado_envio = "No enviado - Portabilidad en curso"
 
         # Agregar los resultados al DataFrame
@@ -116,8 +120,8 @@ for i in range(0, len(df), mensajes_por_lote):
 
     # Esperar el tiempo configurado entre lotes, si no es el último lote
     if i + mensajes_por_lote < len(df):
-        print(f"Esperando {tiempo_espera / 60} minutos antes de enviar el siguiente lote...")
-        mostrar_temporizador(tiempo_espera)
+        print(f"Esperando {tiempo_espera_lote / 60} minutos antes de enviar el siguiente lote...")
+        mostrar_temporizador(tiempo_espera_lote)
 
 # Guardar los resultados en un nuevo archivo Excel
 df_resultados = pd.DataFrame(resultados)
