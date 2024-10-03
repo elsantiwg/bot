@@ -28,7 +28,7 @@ event_validation = soup.find("input", {"id": "__EVENTVALIDATION"}).get("value")
 # Parámetros configurables para el envío por lotes
 mensajes_por_lote = 5          # Número de mensajes que se enviarán por cada lote
 tiempo_espera_lote = 600       # Tiempo de espera entre lotes en segundos (10 minutos)
-tiempo_espera_envio = 10       # Tiempo de espera para que cargue la página (ajústalo según la velocidad de carga)
+tiempo_espera_envio = 15       # Tiempo de espera para que cargue la página (ajústalo según la velocidad de carga)
 
 # Obtener la hora actual en la zona horaria de Colombia
 zona_horaria_colombia = pytz.timezone("America/Bogota")
