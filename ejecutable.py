@@ -30,10 +30,17 @@ viewstate_generator = soup.find("input", {"id": "__VIEWSTATEGENERATOR"}).get("va
 event_validation = soup.find("input", {"id": "__EVENTVALIDATION"}).get("value")
 
 # Parámetros configurables
-MENSAJES_POR_LOTE = 5          # Número de mensajes por lote
-TIEMPO_ESPERA_LOTE = 600       # Tiempo de espera entre lotes en segundos (10 minutos)
-TIEMPO_ESPERA_ENVIO = 15       # Tiempo de espera para enviar el mensaje en segundos
-PAUSA_ENTRE_MENSAJES = 5       # Pausa entre mensajes en segundos
+MENSAJES_POR_LOTE = 5           # Número de mensajes por lote
+TIEMPO_ESPERA_LOTE = 600        # Tiempo de espera entre lotes en segundos (10 minutos)
+TIEMPO_ESPERA_ENVIO = 15        # Tiempo de espera para enviar el mensaje en segundos
+PAUSA_ENTRE_MENSAJES = 5        # Pausa entre mensajes en segundos
+MAX_REINTENTOS = 3              # Número máximo de reintentos
+PAUSA_INCREMENTAL = 5           # Incremento de la pausa después de cada reintento fallido
+
+# Contadores globales
+total_enviados = 0
+total_fallidos = 0
+total_no_portables = 0
 
 # Zona horaria de Colombia
 zona_horaria_colombia = pytz.timezone("America/Bogota")
@@ -48,21 +55,28 @@ def obtener_saludo():
     else:
         return "Buenas noches"
 
-# Función para verificar el estado de portabilidad de un número
+# Función para verificar el estado de portabilidad con reintentos
 def verificar_portabilidad(numero):
-    payload = {
-        '__VIEWSTATE': viewstate,
-        '__VIEWSTATEGENERATOR': viewstate_generator,
-        '__EVENTVALIDATION': event_validation,
-        'txtIngresar': numero,
-        'btnIngrasar.x': '0',
-        'btnIngrasar.y': '0',
-    }
-    # Hacer la solicitud POST
-    response = session.post(URL, data=payload)
-    soup = BeautifulSoup(response.content, 'html.parser')
-    mensaje_estado = soup.find("span", {"id": "lblInfoEstadoPortabilidad"}).text.strip()
-    return mensaje_estado
+    intentos = 0
+    while intentos < MAX_REINTENTOS:
+        try:
+            payload = {
+                '__VIEWSTATE': viewstate,
+                '__VIEWSTATEGENERATOR': viewstate_generator,
+                '__EVENTVALIDATION': event_validation,
+                'txtIngresar': numero,
+                'btnIngrasar.x': '0',
+                'btnIngrasar.y': '0',
+            }
+            response = session.post(URL, data=payload)
+            soup = BeautifulSoup(response.content, 'html.parser')
+            mensaje_estado = soup.find("span", {"id": "lblInfoEstadoPortabilidad"}).text.strip()
+            return mensaje_estado
+        except Exception as e:
+            logging.warning(f"Error en la verificación de portabilidad para {numero}: {e}")
+            intentos += 1
+            time.sleep(PAUSA_INCREMENTAL * intentos)  # Aumentar la pausa con cada intento
+    return "Error en la verificación después de varios intentos"
 
 # Función para mostrar el temporizador
 def mostrar_temporizador(tiempo_restante):
@@ -79,6 +93,7 @@ resultados = []
 
 # Función para procesar un número
 def procesar_numero(row):
+    global total_enviados, total_fallidos, total_no_portables
     numero = str(row['Numero']).strip()
     logging.info(f"Verificando número: {numero}")
 
@@ -90,17 +105,28 @@ def procesar_numero(row):
         mensaje = obtener_saludo()
         numero = "+57" + numero if not numero.startswith("+") else numero
 
-        try:
-            # Enviar el mensaje usando pywhatkit
-            logging.info(f"Enviando mensaje a {numero}: {mensaje}")
-            pwk.sendwhatmsg_instantly(numero, mensaje, TIEMPO_ESPERA_ENVIO, True)
-            estado_envio = "Enviado"
-            time.sleep(PAUSA_ENTRE_MENSAJES)
-        except Exception as e:
-            logging.error(f"Error al enviar mensaje a {numero}: {e}")
-            estado_envio = f"Error: {e}"
+        intentos = 0
+        while intentos < MAX_REINTENTOS:
+            try:
+                # Enviar el mensaje usando pywhatkit
+                logging.info(f"Enviando mensaje a {numero}: {mensaje}")
+                pwk.sendwhatmsg_instantly(numero, mensaje, TIEMPO_ESPERA_ENVIO, True)
+                estado_envio = "Enviado"
+                total_enviados += 1  # Incrementar el contador de mensajes enviados
+                time.sleep(PAUSA_ENTRE_MENSAJES)
+                break
+            except Exception as e:
+                logging.error(f"Error al enviar mensaje a {numero}: {e}")
+                intentos += 1
+                time.sleep(PAUSA_INCREMENTAL * intentos)  # Aumentar la pausa con cada intento
+                estado_envio = f"Error: {e}"
+
+        if intentos == MAX_REINTENTOS:
+            total_fallidos += 1  # Incrementar el contador de fallidos
+            estado_envio = "No enviado después de varios intentos"
     else:
         estado_envio = "No enviado - Portabilidad en curso"
+        total_no_portables += 1  # Incrementar el contador de no portables
 
     return {'Numero': numero, 'Estado Portabilidad': estado_portabilidad, 'Estado Envío': estado_envio}
 
@@ -121,4 +147,7 @@ for i in range(0, len(df), MENSAJES_POR_LOTE):
 df_resultados = pd.DataFrame(resultados)
 df_resultados.to_excel('resultados_finales_portabilidad_y_mensajes_lote.xlsx', index=False)
 
-logging.info("Proceso de verificación y envío de mensajes completado.")
+# Resumen final del proceso
+logging.info(f"Proceso completado: {total_enviados} mensajes enviados con éxito, {total_fallidos} fallos en el envío, {total_no_portables} números no portables.")
+
+print(f"Resumen: {total_enviados} mensajes enviados con éxito, {total_fallidos} fallos en el envío, {total_no_portables} números no portables.")
