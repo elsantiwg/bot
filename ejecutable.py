@@ -152,4 +152,3 @@ logging.info(f"Proceso completado: {total_enviados} mensajes enviados con éxito
 
 print(f"Resumen: {total_enviados} mensajes enviados con éxito, {total_fallidos} fallos en el envío, {total_no_portables} números no portables.")
 
-# Cambio 
