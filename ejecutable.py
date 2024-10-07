@@ -206,4 +206,16 @@ for i in range(0, len(df), MENSAJES_POR_LOTE):
         mostrar_temporizador(TIEMPO_ESPERA_LOTE)
         analizar_mensajes_entrantes()  # Analizar mensajes entrantes durante la espera
 
+<<<<<<< HEAD
+# Guardar los resultados en un nuevo archivo Excel
+df_resultados = pd.DataFrame(resultados)
+df_resultados.to_excel('resultados_finales_portabilidad_y_mensajes_lote.xlsx', index=False)
+
+# Resumen final del proceso
+logging.info(f"Proceso completado: {total_enviados} mensajes enviados con éxito, {total_fallidos} fallos en el envío, {total_no_portables} números no portables.")
+
+print(f"Resumen: {total_enviados} mensajes enviados con éxito, {total_fallidos} fallos en el envío, {total_no_portables} números no portables.")
+
+=======
 logging.info(f"Proceso completo: {total_enviados} enviados, {total_fallidos} fallidos, {total_no_portables} no portables.")
+>>>>>>> cc979af3a2a3b0c5b0f90338727c387991250c2c
